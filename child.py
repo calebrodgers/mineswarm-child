@@ -358,11 +358,15 @@ if setup_udp_server(local_port):
                         motors.off()
                         time.sleep(0.1)
                         #print('next')
-
+                        
                         i += 1
                         #print('real'+str(real_angle))
-                close_connection()
+                        send_udp_data("yeet.", remote_ip, remote_port)
+                #data = "" + str(distance) + "," + str(theta)
+                #send_udp_data(data, remote_ip, remote_port)
+
                 send_udp_data("Task 2 executed", remote_ip, remote_port)
+                close_connection()
             # Add more elif blocks for additional commands if needed
             close_connection()
             setup_udp_server(local_port)  # Reinitialize server after task execution"

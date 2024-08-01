@@ -97,7 +97,7 @@ def setup_udp_server(local_port):
     """
     Setup a UDP server on a specified local port to listen for incoming data.
     """
-    response = send_at_command("AT+CIPSTART=\"UDP\",\"192.168.0.25\",0,{},2".format(local_port))
+    response = send_at_command("AT+CIPSTART=\"UDP\",\"192.168.0.35\",0,{},2".format(local_port))
     if "OK" in response.decode('utf-8'):
         print("UDP server setup successful on local port: {}".format(local_port))
         return True
@@ -121,7 +121,7 @@ def setup_udp_client(remote_ip, remote_port, local_port):
 
 
 def send_udp_data(data, remote_ip, remote_port):
-
+    """
     command = 'AT+CIPSTART="UDP","{}",{},{}'.format(remote_ip, remote_port, 1112)
     response = send_at_command(command)
     if "OK" in response.decode('utf-8'):
@@ -129,6 +129,7 @@ def send_udp_data(data, remote_ip, remote_port):
     else:
         print("Failed to set up UDP client:", response)
         return False
+    """
     """
     Send data over UDP to the previously specified IP and port.
     """
@@ -240,8 +241,12 @@ if setup_udp_server(local_port):
         command = listen_udp()
         command = "2"
         print("receive message from ubuntu:")
+        setup_udp_client(remote_ip, remote_port, local_port)
         print(command)
         if command:
+            # Send the udp data
+            send_udp_data("Child executing task...", remote_ip, remote_port)
+
             if command == "1":
                 print("Executing Task 1")
                 # Execute Task 1
@@ -279,6 +284,7 @@ if setup_udp_server(local_port):
                 time.sleep(1)
 
                 # Execute Task 2
+                """
                 for distance, theta in waypoints:
                         encoders.get_counts(reset=True)
                         last_counts = 0
@@ -364,7 +370,7 @@ if setup_udp_server(local_port):
                         send_udp_data("yeet.", remote_ip, remote_port)
                 #data = "" + str(distance) + "," + str(theta)
                 #send_udp_data(data, remote_ip, remote_port)
-
+                """
                 send_udp_data("Task 2 executed", remote_ip, remote_port)
                 close_connection()
             # Add more elif blocks for additional commands if needed

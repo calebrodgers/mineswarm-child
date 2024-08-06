@@ -35,6 +35,7 @@ def setup_wifi(ssid, password):
     # Connect to AP
     send_at_command("AT+CWJAP=\"{}\",\"{}\"".format(ssid, password), 20)
     send_at_command("AT+CIFSR", 10)
+    send_at_command("AT+CIPMUX=1")
 
 
 def setup_udp_client(remote_ip, remote_port):
@@ -42,7 +43,7 @@ def setup_udp_client(remote_ip, remote_port):
     Setup UDP client to send data to a specific remote IP and port.
     """
     #command = 'AT+CIPSTART="UDP","{}",{},{}'.format(remote_ip, remote_port, local_port)
-    command = 'AT+CIPSTART="UDP","{}",{}'.format(remote_ip, remote_port)
+    command = 'AT+CIPSTART=0,"UDP","{}",{}'.format(remote_ip, remote_port)
     response = send_at_command(command)
     if "OK" in response.decode('utf-8'):
         print("UDP client setup successful. Target IP: {} on port: {}".format(remote_ip, remote_port))
@@ -57,7 +58,7 @@ def send_udp_data(data):
     Send data over UDP to the previously specified IP and port.
     """
     length = len(data)
-    send_command = 'AT+CIPSEND={}'.format(length)
+    send_command = 'AT+CIPSEND=0,{}'.format(length)
     response = send_at_command(send_command, 0.5)  # Increase time if needed
     if ">" in response.decode('utf-8'):  # Check if ready to receive data
         print("Ready to send data.")
@@ -74,7 +75,7 @@ def setup_udp_server(local_port):
     """
     Setup a UDP server on a specified local port to listen for incoming data.
     """
-    response = send_at_command("AT+CIPSTART=\"UDP\",\"192.168.0.35\",0,{},2".format(local_port))
+    response = send_at_command("AT+CIPSTART=1,\"UDP\",\"192.168.0.35\",0,{},2".format(local_port))
     if "OK" in response.decode('utf-8'):
         print("UDP server setup successful on local port: {}".format(local_port))
         return True

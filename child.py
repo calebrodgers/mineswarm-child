@@ -13,6 +13,9 @@ CPR = 1200  # Counts per revolution (adjust according to your encoder specs)
 WHEEL_CIRCUMFERENCE = math.pi * WHEEL_DIAMETER
 ANGLE_TOLERANCE = 2  # degrees, tolerance for gyro angle accuracy
 
+# ID number for this robot 
+robot_id = 3
+
 # Initialize components
 motors = robot.Motors()
 encoders = robot.Encoders()
@@ -92,12 +95,15 @@ def setup_wifi(ssid, password):
     send_at_command("AT+CWJAP=\"{}\",\"{}\"".format(ssid, password), 20)
     send_at_command("AT+CIFSR", 10)
 
+    # Enable multiple connections 
+    send_at_command("AT+CIPMUX=1")
+
 
 def setup_udp_server(local_port):
     """
     Setup a UDP server on a specified local port to listen for incoming data.
     """
-    response = send_at_command("AT+CIPSTART=\"UDP\",\"192.168.0.35\",0,{},2".format(local_port))
+    response = send_at_command("AT+CIPSTART=1,\"UDP\",\"192.168.0.35\",0,{},2".format(local_port))
     if "OK" in response.decode('utf-8'):
         print("UDP server setup successful on local port: {}".format(local_port))
         return True
@@ -106,11 +112,12 @@ def setup_udp_server(local_port):
         return False
 
 
-def setup_udp_client(remote_ip, remote_port, local_port):
+def setup_udp_client(remote_ip, remote_port):
     """
     Setup UDP client to send data to a specific remote IP and port.
     """
-    command = 'AT+CIPSTART="UDP","{}",{},{}'.format(remote_ip, remote_port, local_port)
+    #command = 'AT+CIPSTART="UDP","{}",{},{}'.format(remote_ip, remote_port, local_port)
+    command = 'AT+CIPSTART=0,"UDP","{}",{}'.format(remote_ip, remote_port)
     response = send_at_command(command)
     if "OK" in response.decode('utf-8'):
         print("UDP client setup successful. Target IP: {} on port: {}".format(remote_ip, remote_port))
@@ -120,21 +127,9 @@ def setup_udp_client(remote_ip, remote_port, local_port):
         return False
 
 
-def send_udp_data(data, remote_ip, remote_port):
-    """
-    command = 'AT+CIPSTART="UDP","{}",{},{}'.format(remote_ip, remote_port, 1112)
-    response = send_at_command(command)
-    if "OK" in response.decode('utf-8'):
-        print("UDP client setup successful. Target IP: {} on port: {}".format(remote_ip, remote_port))
-    else:
-        print("Failed to set up UDP client:", response)
-        return False
-    """
-    """
-    Send data over UDP to the previously specified IP and port.
-    """
+def send_udp_data(data):
     length = len(data)
-    send_command = 'AT+CIPSEND={}'.format(length)
+    send_command = 'AT+CIPSEND=0,{}'.format(length)
     response = send_at_command(send_command, 0.5)  # Increase time if needed
     if ">" in response.decode('utf-8'):  # Check if ready to receive data
         print("Ready to send data.")
@@ -179,8 +174,6 @@ def listen_udp():
             except Exception as e:  # Handle decoding exceptions
                 print("Received (raw):", response)  # Print raw response if decoding fails
                 print("Decode Error:", e)
-        
-    return None
 
 
 def plan_path(width, height, robot_width):
@@ -233,146 +226,134 @@ setup_wifi(ssid, password)
 display.fill(0)
 display.text("connected to wifi:", 0, 0)
 display.show()
-#close_connection()
+
+# Establish UDP client
+setup_udp_client(remote_ip, remote_port)
+time.sleep(1)
 
 # Setup UDP server
 if setup_udp_server(local_port):
+    send_udp_data("Child {} ready".format(robot_id))
     while True:
-        command = listen_udp()
-        command = "2"
-        print("receive message from ubuntu:")
-        setup_udp_client(remote_ip, remote_port, local_port)
-        print(command)
-        if command:
-            # Send the udp data
-            send_udp_data("Child executing task...", remote_ip, remote_port)
+        #setup_udp_client(remote_ip, remote_port, local_port)
+        
+        # Responsible for sending UDP packets
+        # send_udp_data("Hello world", remote_ip, remote_port)
 
-            if command == "1":
-                print("Executing Task 1")
-                # Execute Task 1
-                motors.set_speeds(robot.Motors.MAX_SPEED/3, robot.Motors.MAX_SPEED/3)
-                time.sleep(3)
-                motors.off()
-                motors.set_speeds(-robot.Motors.MAX_SPEED/3, -robot.Motors.MAX_SPEED/3)
-                time.sleep(3)
-                motors.off()
-                close_connection()
-                send_udp_data("Task 1 executed", remote_ip, remote_port)
-            elif command == "2":
-                print("Executing Task 2")
+        # Send the udp data
+        #send_udp_data("Child executing task...", remote_ip, remote_port)
+        print("Waiting for commands...")
 
-                # Get the area to clear
-                area = listen_udp()
+        # Get the area to clear
+        area = listen_udp()
 
-                dimensions = area.split(",")
-                area_width = float(dimensions[0])
-                area_height = float(dimensions[1])
-                
-                display.fill(0)
-                display.text(str(len(waypoints)), 0, 0)
-                display.text(str(area_width), 0, 15)
-                display.text(str(area_height), 0, 30)
-                display.show()
+        dimensions = area.split(",")
+        area_width = float(dimensions[0])
+        area_height = float(dimensions[1])
+            
+        display.fill(0)
+        display.text(str(len(waypoints)), 0, 0)
+        display.text(str(area_width), 0, 15)
+        display.text(str(area_height), 0, 30)
+        display.show()
 
-                print("Wideness: ", area_width)
-                print("Highness: ", area_height)
-              
-                waypoints = plan_path(area_width, area_height, 0.098)
-                
-                print(waypoints)
+        print("Wideness: ", area_width)
+        print("Highness: ", area_height)
+            
+        waypoints = plan_path(area_width, area_height, 0.098)
+            
+        print(waypoints)
 
-                time.sleep(1)
+        time.sleep(1)
+        
+        i = 0
 
-                # Execute Task 2
-                """
-                for distance, theta in waypoints:
-                        encoders.get_counts(reset=True)
-                        last_counts = 0
-                        target_counts = calculate_counts(distance)
-                        display.text(str(target_counts), 0, 45)
-                        display.show()
+        # Execute Task 2
+        for distance, theta in waypoints:
+            encoders.get_counts(reset=True)
+            last_counts = 0
+            target_counts = calculate_counts(distance)
 
-                        aim_angle += theta
-                        #turn_angle(aim_angle)
-                        
-                        i = 1 # Flag for calibration
+            aim_angle += theta
+            #turn_angle(aim_angle)
 
-                        if i == 1:
-                            calibration_start = time.ticks_ms()
-                            calibration_time = 1000
-                            reading_count = 0
-                            while time.ticks_diff(time.ticks_ms(), calibration_start) < calibration_time:
-                                if imu.gyro.data_ready():
-                                    imu.gyro.read()
-                                    stationary_gz += imu.gyro.last_reading_dps[2]
-                                    reading_count += 1
-                            stationary_gz /= reading_count
+            if i == 1:
+                calibration_start = time.ticks_ms()
+                calibration_time = 1000
+                reading_count = 0
+                while time.ticks_diff(time.ticks_ms(), calibration_start) < calibration_time:
+                    if imu.gyro.data_ready():
+                        imu.gyro.read()
+                        stationary_gz += imu.gyro.last_reading_dps[2]
+                        reading_count += 1
+                stationary_gz /= reading_count
+                print('cali')
 
 
-                        # PD Controller coefficients
-                        Kp = 350  # Proportional gain
-                        Kd = 7   # Derivative gain
-                        # To store the last angle for derivative calculation
-                        while True:
-                            #motors.set_speeds(MAX_SPEED, MAX_SPEED)
-                            current_counts = sum(encoders.get_counts()) / 2
-                            counts_increment = current_counts - last_counts
+            # PD Controller coefficients
+            Kp = 350  # Proportional gain
+            Kd = 7   # Derivative gain
+            # To store the last angle for derivative calculation
+            while True:
+                #motors.set_speeds(MAX_SPEED, MAX_SPEED)
+                current_counts = sum(encoders.get_counts()) / 2
+                counts_increment = current_counts - last_counts
 
-                            current_position[0] += (counts_increment / CPR) * WHEEL_CIRCUMFERENCE * math.sin(math.radians(real_angle))
-                            current_position[1] += (counts_increment / CPR) * WHEEL_CIRCUMFERENCE * math.cos(math.radians(real_angle))
+                current_position[0] += (counts_increment / CPR) * WHEEL_CIRCUMFERENCE * math.sin(math.radians(real_angle))
+                current_position[1] += (counts_increment / CPR) * WHEEL_CIRCUMFERENCE * math.cos(math.radians(real_angle))
 
-                            # reach the wapoint and proceed the next waypoint
-                            if current_counts >= target_counts:
-                                break
-                            last_counts = current_counts
+                # reach the wapoint and proceed the next waypoint
+                if current_counts >= target_counts:
+                    break
+                last_counts = current_counts
 
 
 
-                            # Feedback control of the Zumo when it moves straight
-                            if imu.gyro.data_ready():
-                                    now = time.ticks_us()
-                                    imu.gyro.read()
-                                    turn_rate = imu.gyro.last_reading_dps[2]-stationary_gz  # Z-axis
-                                    time_elapsed = time.ticks_diff(now, last_time) / 1000000  # Convert microseconds to seconds
-                                    current_angle += turn_rate * time_elapsed
+                # Feedback control of the Zumo when it moves straight
+                if imu.gyro.data_ready():
+                    now = time.ticks_us()
+                    imu.gyro.read()
+                    turn_rate = imu.gyro.last_reading_dps[2]-stationary_gz  # Z-axis
+                    time_elapsed = time.ticks_diff(now, last_time) / 1000000  # Convert microseconds to seconds
+                    current_angle += turn_rate * time_elapsed
 
 
-                                    # PD control calculation
-                                    error = aim_angle - current_angle
-                                    derivative = (current_angle - last_angle) / time_elapsed
+                    # PD control calculation
+                    error = aim_angle - current_angle
+                    derivative = (current_angle - last_angle) / time_elapsed
 
 
-                                    # Check if the target angle is reached within the tolerance
-                                    if abs(error) < ANGLE_TOLERANCE:
+                    # Check if the target angle is reached within the tolerance
+                    if abs(error) < ANGLE_TOLERANCE:
 
-                                        motors.set_speeds(MAX_SPEED, MAX_SPEED)
-
-
-                                    else:
-                                    # Calculate control output
-                                        turn_speed = Kp * error- Kd * turn_rate
-                                        # Clamp the turn speed to be within the max speed range
-                                        turn_speed = max(-robot.Motors.MAX_SPEED, min(turn_speed, robot.Motors.MAX_SPEED))
-                                        motors.set_speeds(-turn_speed, turn_speed)
+                        motors.set_speeds(MAX_SPEED, MAX_SPEED)
 
 
-                                    # Update variables for the next iteration
-                                    last_time = now
-                                    last_angle = current_angle
+                    else:
+                    # Calculate control output
+                        turn_speed = Kp * error- Kd * turn_rate
+                        # Clamp the turn speed to be within the max speed range
+                        turn_speed = max(-robot.Motors.MAX_SPEED, min(turn_speed, robot.Motors.MAX_SPEED))
+                        motors.set_speeds(-turn_speed, turn_speed)
 
 
-                        motors.off()
-                        time.sleep(0.1)
-                        #print('next')
-                        
-                        i += 1
-                        #print('real'+str(real_angle))
-                        send_udp_data("yeet.", remote_ip, remote_port)
-                #data = "" + str(distance) + "," + str(theta)
-                #send_udp_data(data, remote_ip, remote_port)
-                """
-                send_udp_data("Task 2 executed", remote_ip, remote_port)
-                close_connection()
+                    # Update variables for the next iteration
+                    last_time = now
+                    last_angle = current_angle
+
+
+            motors.off()
+            time.sleep(0.1)
+            #print('next')
+
+            i += 1
+
+            send_udp_data("{},{},{},0".format(robot_id, current_position[0], current_position[1]))
+
+            #data = "" + str(distance) + "," + str(theta)
+            #send_udp_data(data, remote_ip, remote_port)
+            
+        close_connection()
             # Add more elif blocks for additional commands if needed
-            close_connection()
-            setup_udp_server(local_port)  # Reinitialize server after task execution"
+            
+            #setup_udp_server(local_port)  # Reinitialize server after task execution"

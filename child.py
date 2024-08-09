@@ -80,7 +80,7 @@ def reset_esp8266():
     time.sleep(1)  # Wait to ensure command is sent and module is reset
 
 
-def setup_wifi(ssid, password):
+def setup_wifi(ssid, password, local_ip):
     # Test AT command
     send_at_command("AT+RST", 5)  # Reset ESP8266
     send_at_command("ATE0")       # Disable echo
@@ -89,7 +89,7 @@ def setup_wifi(ssid, password):
     send_at_command("AT+CWMODE=1")
     send_at_command("AT+CWDHCP=0,0")
     #固定小机器人的ip
-    send_at_command("AT+CIPSTA=\"192.168.0.35\",\"192.168.0.1\",\"255.255.255.0\"")
+    send_at_command("AT+CIPSTA=\"{}\",\"192.168.0.1\",\"255.255.255.0\"".format(local_ip))
 
     # Connect to AP
     send_at_command("AT+CWJAP=\"{}\",\"{}\"".format(ssid, password), 20)
@@ -98,12 +98,12 @@ def setup_wifi(ssid, password):
     # Enable multiple connections 
     send_at_command("AT+CIPMUX=1")
 
-
-def setup_udp_server(local_port):
+#192.168.0.35
+def setup_udp_server(local_ip, local_port):
     """
     Setup a UDP server on a specified local port to listen for incoming data.
     """
-    response = send_at_command("AT+CIPSTART=1,\"UDP\",\"192.168.0.35\",0,{},2".format(local_port))
+    response = send_at_command("AT+CIPSTART=1,\"UDP\",\"{}\",0,{},2".format(local_ip, local_port))
     if "OK" in response.decode('utf-8'):
         print("UDP server setup successful on local port: {}".format(local_port))
         return True
@@ -215,6 +215,7 @@ def plan_path(width, height, robot_width):
  # Declare globals for shared variables
 ssid = 'TP-Link_EBC6'
 password = '58221471'
+local_ip = "192.168.0.35"
 local_port = 1112
 remote_ip = "192.168.0.107"
 remote_port = 50000
@@ -222,7 +223,7 @@ display.fill(0)
 display.text("connect to wifi:", 0, 0)
 display.show()
 # Initialize Wi-Fi
-setup_wifi(ssid, password)
+setup_wifi(ssid, password, local_ip)
 display.fill(0)
 display.text("connected to wifi:", 0, 0)
 display.show()
@@ -232,7 +233,7 @@ setup_udp_client(remote_ip, remote_port)
 time.sleep(1)
 
 # Setup UDP server
-if setup_udp_server(local_port):
+if setup_udp_server(local_ip, local_port):
     send_udp_data("Child {} ready".format(robot_id))
     while True:
         #setup_udp_client(remote_ip, remote_port, local_port)

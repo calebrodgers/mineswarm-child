@@ -1,5 +1,6 @@
 # Write your code here :-)
 from machine import UART, Pin
+from libraries import esp8266 as wifi
 from zumo_2040_robot import robot
 import time
 import math
@@ -14,7 +15,7 @@ WHEEL_CIRCUMFERENCE = math.pi * WHEEL_DIAMETER
 ANGLE_TOLERANCE = 2  # degrees, tolerance for gyro angle accuracy
 
 # ID number for this robot 
-robot_id = 3
+robot_id = 1
 
 # Initialize components
 motors = robot.Motors()
@@ -29,6 +30,18 @@ imu.enable_default()
 current_position = [0, 0]
 real_angle = 0
 stationary_gz = 0
+
+# Confirm wifi connection has been established
+isConnected = False
+
+# Interrupt handler for mine detection
+pin = Pin(28, Pin.IN)
+
+def callback(pin):
+    if(isConnected):
+	    wifi.send_udp_data("Mine identified",  uart1)
+
+pin.irq(trigger=Pin.IRQ_RISING, handler=callback)
 
 # Waypoints list: Each element is [distance (in meters), theta (in degrees)]
 # waypoint is defined as [distance, theta], distance is the distance to be theta, theta is the angle to be turned when it reach the defined
@@ -58,122 +71,6 @@ def calculate_counts(distance):
 ##############################################################################################################
 # Initialize UART1 with GPIO pins (specific to your microcontroller board layout)
 uart1 = UART(1, baudrate=115200, tx=Pin(20), rx=Pin(21))
-
-
-def send_at_command(cmd, wait_time=1):
-    print("Sending:", cmd)
-    cmd += '\r\n'  # Append carriage return and newline to the command
-    uart1.write(cmd.encode('utf-8'))  # Encode the command as UTF-8 before sending
-    time.sleep(wait_time)
-    response = uart1.read()
-    if response:
-        try:
-            print("Received:", response.decode('utf-8'))  # Try to decode response as UTF-8
-        except Exception as e:  # Catch any exception during decoding
-            print("Received (raw):", response)  # Print raw response if decoding fails
-            print("Decode Error:", e)  # Print error message
-    return response
-
-
-def reset_esp8266():
-    uart1.write("AT+RESTORE\r\n")
-    time.sleep(1)  # Wait to ensure command is sent and module is reset
-
-
-def setup_wifi(ssid, password, local_ip):
-    # Test AT command
-    send_at_command("AT+RST", 5)  # Reset ESP8266
-    send_at_command("ATE0")       # Disable echo
-    send_at_command("AT")         # Test AT command
-    # Set mode to STA (Station)
-    send_at_command("AT+CWMODE=1")
-    send_at_command("AT+CWDHCP=0,0")
-    #固定小机器人的ip
-    send_at_command("AT+CIPSTA=\"{}\",\"192.168.0.1\",\"255.255.255.0\"".format(local_ip))
-
-    # Connect to AP
-    send_at_command("AT+CWJAP=\"{}\",\"{}\"".format(ssid, password), 20)
-    send_at_command("AT+CIFSR", 10)
-
-    # Enable multiple connections 
-    send_at_command("AT+CIPMUX=1")
-
-#192.168.0.35
-def setup_udp_server(local_ip, local_port):
-    """
-    Setup a UDP server on a specified local port to listen for incoming data.
-    """
-    response = send_at_command("AT+CIPSTART=1,\"UDP\",\"{}\",0,{},2".format(local_ip, local_port))
-    if "OK" in response.decode('utf-8'):
-        print("UDP server setup successful on local port: {}".format(local_port))
-        return True
-    else:
-        print("Failed to set up UDP server:", response)
-        return False
-
-
-def setup_udp_client(remote_ip, remote_port):
-    """
-    Setup UDP client to send data to a specific remote IP and port.
-    """
-    #command = 'AT+CIPSTART="UDP","{}",{},{}'.format(remote_ip, remote_port, local_port)
-    command = 'AT+CIPSTART=0,"UDP","{}",{}'.format(remote_ip, remote_port)
-    response = send_at_command(command)
-    if "OK" in response.decode('utf-8'):
-        print("UDP client setup successful. Target IP: {} on port: {}".format(remote_ip, remote_port))
-        return True
-    else:
-        print("Failed to set up UDP client:", response)
-        return False
-
-
-def send_udp_data(data):
-    length = len(data)
-    send_command = 'AT+CIPSEND=0,{}'.format(length)
-    response = send_at_command(send_command, 0.5)  # Increase time if needed
-    if ">" in response.decode('utf-8'):  # Check if ready to receive data
-        print("Ready to send data.")
-        response = send_at_command(data, 0.5)  # Send the actual data
-        if "SEND OK" in response.decode('utf-8'):
-            print("Data sent successfully")
-        else:
-            print("Failed to send data:", response)
-    else:
-        print("Failed to initiate send:", response)
-
-
-def close_connection():
-    """
-    Close the current connection.
-    """
-    print("Closing any existing connection...")
-    response = send_at_command("AT+CIPCLOSE")
-    if "OK" in response.decode('utf-8') or "ERROR" in response.decode('utf-8'):
-        print("Connection closed successfully or no active connection.")
-    else:
-        print("Failed to close connection:", response)
-
-
-def listen_udp():
-    """
-    Listen for incoming UDP data continuously for a specified duration in seconds.
-    """
-
-    while True:
-        response = uart1.read()
-        if response:
-            try:
-                decoded_response = response.decode('utf-8')
-                if "+IPD" in decoded_response:
-                    parts = decoded_response.split(':')
-                    if len(parts) > 1:
-                        data = parts[1].strip()
-                        print(data)
-                        return data
-                return decoded_response.strip()
-            except Exception as e:  # Handle decoding exceptions
-                print("Received (raw):", response)  # Print raw response if decoding fails
-                print("Decode Error:", e)
 
 
 def plan_path(width, height, robot_width):
@@ -215,7 +112,7 @@ def plan_path(width, height, robot_width):
  # Declare globals for shared variables
 ssid = 'TP-Link_EBC6'
 password = '58221471'
-local_ip = "192.168.0.35"
+local_ip = "192.168.0.15"
 local_port = 1112
 remote_ip = "192.168.0.107"
 remote_port = 50000
@@ -223,18 +120,20 @@ display.fill(0)
 display.text("connect to wifi:", 0, 0)
 display.show()
 # Initialize Wi-Fi
-setup_wifi(ssid, password, local_ip)
+wifi.setup_wifi(ssid, password, local_ip, uart1)
 display.fill(0)
 display.text("connected to wifi:", 0, 0)
 display.show()
 
 # Establish UDP client
-setup_udp_client(remote_ip, remote_port)
+wifi.setup_udp_client(remote_ip, remote_port, uart1)
 time.sleep(1)
 
 # Setup UDP server
-if setup_udp_server(local_ip, local_port):
-    send_udp_data("Child {} ready".format(robot_id))
+if wifi.setup_udp_server(local_ip, local_port, uart1):
+    wifi.send_udp_data("Child {} ready".format(robot_id), uart1)
+    isConnected = True
+
     while True:
         #setup_udp_client(remote_ip, remote_port, local_port)
         
@@ -246,7 +145,7 @@ if setup_udp_server(local_ip, local_port):
         print("Waiting for commands...")
 
         # Get the area to clear
-        area = listen_udp()
+        area = wifi.listen_udp(uart1)
 
         dimensions = area.split(",")
         area_width = float(dimensions[0])
@@ -349,12 +248,12 @@ if setup_udp_server(local_ip, local_port):
 
             i += 1
 
-            send_udp_data("{},{},{},0".format(robot_id, current_position[0], current_position[1]))
+            wifi.send_udp_data("{},{},{},0".format(robot_id, current_position[0], current_position[1]), uart1)
 
             #data = "" + str(distance) + "," + str(theta)
             #send_udp_data(data, remote_ip, remote_port)
             
-        close_connection()
+        wifi.close_connection(uart1)
             # Add more elif blocks for additional commands if needed
             
             #setup_udp_server(local_port)  # Reinitialize server after task execution"

@@ -60,12 +60,6 @@ last_angle = 0
 
 # time delay as you need for the Zumo to start move.
 
-
-# Counts measurement for Encoder
-def calculate_counts(distance):
-    """ Convert distance to encoder counts """
-    return int((distance / WHEEL_CIRCUMFERENCE) * CPR)
-
 #WIFI
 ##############################################################################################################
 ##############################################################################################################
@@ -73,40 +67,100 @@ def calculate_counts(distance):
 uart1 = UART(1, baudrate=115200, tx=Pin(20), rx=Pin(21))
 
 
-def plan_path(width, height, robot_width):
-    print()
-    """
-    Constructs a set of waypoints to navigate a rectangular area
-    """
-    waypoints = []
+def generate_path(length, width):
+    path = []
+    path.append([0, 0])  # 起始点
 
-	# Compute the necessary number of waypoints
-    waypoint_count = 2 * int(abs(width) / robot_width) - 2
-    print(waypoint_count)
-	# Get the first waypoint
-    new_waypoint = [height, 0]
-    waypoints.append(new_waypoint)
+    # 确定转向角度，正的宽度表示左转，负的宽度表示右转
+    direction = 90 if width > 0 else -90
 
-	# Return in the case there is only one waypoint
-    if waypoint_count <= 1:
-        return waypoints
-	
-    # Modifies the sign of the angles in the waypoints based on the area width
-    angle_sign = 1 if width > 0 else -1
+    # 使用绝对值计算需要的垂直线段数量
+    num_segments = int(abs(width) // 0.1)
+    remaining_width = abs(width) - num_segments * 0.1
 
-	# Get the remaining "pairs" of waypoints
-    for i in range(0, int((waypoint_count / 2))):
-        if(i % 2 == 0):
-            waypoints.append([robot_width, angle_sign * 90])
-            waypoints.append([height, angle_sign * 90])
+    # 生成路径
+    for _ in range(num_segments):
+        # 前进length
+        path.append([length, 0])
+        # 转向90度
+        path.append([0, direction])
+        # 前进0.1
+        path.append([0.1, 0])
+        # 转向90度
+        path.append([0, direction])
+
+        # 改变方向
+        direction *= -1
+
+    # 如果有剩余宽度，处理剩余部分
+    if remaining_width > 0:
+        # 前进length
+        path.append([length, 0])
+        # 转向90度
+        path.append([0, direction])
+        # 前进剩余宽度（应该是0.1）
+        path.append([remaining_width, 0])
+        # 转向90度
+        path.append([0, direction])
+
+    # 最后一步返回到起点，转向方向修正
+    path.append([0, -direction])
+    path.append([abs(width), 0])
+
+    # 再次转向90度，转到出发方向的相反方向
+    path.append([0, -direction])  # 保持与起始方向相反
+
+    # 沿着相反方向走一段距离，这里假设是length的1/2（你可以调整这个值）
+    path.append([length / 2, 0])
+
+    return path
+# Counts measurement for Encoder
+def calculate_counts(distance):
+    """ Convert distance to encoder counts """
+    return int((distance / WHEEL_CIRCUMFERENCE) * CPR)
+
+# Turn angle function when the Zumo reachs the destination
+def turn_angle(target_angle):
+    """ Turn a certain angle using the gyro with PD control, using microseconds for timing """
+    global current_angle
+    last_time1 = time.ticks_us()
+
+
+    # PD Controller coefficients
+    Kp = 350  # Proportional gain
+    Kd = 7   # Derivative gain
+    last_angle1 = current_angle  # To store the last angle for derivative calculation
+
+    while True:
+        if imu.gyro.data_ready():
+            now1 = time.ticks_us()
+            imu.gyro.read()
+            turn_rate = imu.gyro.last_reading_dps[2]-stationary_gz  # Z-axis
+            time_elapsed = time.ticks_diff(now1, last_time1) / 1000000  # Convert microseconds to seconds
+            current_angle += turn_rate * time_elapsed
+
+            # PD control calculation
+            error = target_angle - current_angle
+            derivative = (current_angle - last_angle1) / time_elapsed
+
+            # Check if the target angle is reached within the tolerance
+            if abs(error) < ANGLE_TOLERANCE:
+                motors.off()
+                print(f"Final angle after turn: {current_angle}")
+                return
+
+            # Calculate control output
+            turn_speed = Kp * error - Kd * turn_rate
+            # Clamp the turn speed to be within the max speed range
+            turn_speed = max(-robot.Motors.MAX_SPEED, min(turn_speed, robot.Motors.MAX_SPEED))
+            motors.set_speeds(-turn_speed, turn_speed)
+
+            # Update variables for the next iteration
+            last_time1 = now1
+            last_angle1 = current_angle
         else:
-            waypoints.append([robot_width, angle_sign * -90])
-            waypoints.append([height, angle_sign * -90])
-
-    print(waypoints)
-    
-	# Return the waypoints to the caller
-    return waypoints
+            # Small delay to prevent the loop from running too fast
+            time.sleep(0.01)
 
 
  # Declare globals for shared variables
@@ -160,95 +214,124 @@ if wifi.setup_udp_server(local_ip, local_port, uart1):
         print("Wideness: ", area_width)
         print("Highness: ", area_height)
             
-        waypoints = plan_path(area_width, area_height, 0.098)
+        waypoints = generate_path(area_width, area_height)
             
         print(waypoints)
 
-        time.sleep(1)
         
         i = 0
 
-        # Execute Task 2
+        ####################################################################################################
+        ########testing unload##############################################################################
+        #main control loop to proceed each waypoint
+        time.sleep(2)
+        motors.set_speeds(MAX_SPEED/2, MAX_SPEED/2)
+        time.sleep(1.5)
+        motors.off()
+        # Reset and enable IMU
+        imu.reset()
+        imu.enable_default()
+        time.sleep(1)
+
+        #####################################################################################################
+        #####################################################################################################
+
+
+        #main control loop to proceed each waypoint
         for distance, theta in waypoints:
-            encoders.get_counts(reset=True)
-            last_counts = 0
-            target_counts = calculate_counts(distance)
+                encoders.get_counts(reset=True)
+                last_counts = 0
+                target_counts = calculate_counts(distance)
 
-            aim_angle += theta
-            #turn_angle(aim_angle)
+                aim_angle += theta
+                #turn_angle(aim_angle)
 
-            if i == 1:
-                calibration_start = time.ticks_ms()
-                calibration_time = 1000
-                reading_count = 0
-                while time.ticks_diff(time.ticks_ms(), calibration_start) < calibration_time:
+                if i == 1:
+                    calibration_start = time.ticks_ms()
+                    calibration_time = 1000
+                    reading_count = 0
+                    while time.ticks_diff(time.ticks_ms(), calibration_start) < calibration_time:
+                        if imu.gyro.data_ready():
+                            imu.gyro.read()
+                            stationary_gz += imu.gyro.last_reading_dps[2]
+                            reading_count += 1
+                    stationary_gz /= reading_count
+                    print('cali')
+
+
+                # PD Controller coefficients
+                Kp = 350  # Proportional gain
+                Kd = 7   # Derivative gain
+                # To store the last angle for derivative calculation
+                while True:
+                    #motors.set_speeds(MAX_SPEED, MAX_SPEED)
+                    current_counts = sum(encoders.get_counts()) / 2
+                    counts_increment = current_counts - last_counts
+
+                    current_position[0] += (counts_increment / CPR) * WHEEL_CIRCUMFERENCE * math.sin(math.radians(real_angle))
+                    current_position[1] += (counts_increment / CPR) * WHEEL_CIRCUMFERENCE * math.cos(math.radians(real_angle))
+
+                    # reach the wapoint and proceed the next waypoint
+                    if current_counts >= target_counts:
+                        break
+                    last_counts = current_counts
+
+
+
+                    # Feedback control of the Zumo when it moves straight
                     if imu.gyro.data_ready():
-                        imu.gyro.read()
-                        stationary_gz += imu.gyro.last_reading_dps[2]
-                        reading_count += 1
-                stationary_gz /= reading_count
-                print('cali')
+                            now = time.ticks_us()
+                            imu.gyro.read()
+                            turn_rate = imu.gyro.last_reading_dps[2]-stationary_gz  # Z-axis
+                            time_elapsed = time.ticks_diff(now, last_time) / 1000000  # Convert microseconds to seconds
+                            current_angle += turn_rate * time_elapsed
 
 
-            # PD Controller coefficients
-            Kp = 350  # Proportional gain
-            Kd = 7   # Derivative gain
-            # To store the last angle for derivative calculation
-            while True:
-                #motors.set_speeds(MAX_SPEED, MAX_SPEED)
-                current_counts = sum(encoders.get_counts()) / 2
-                counts_increment = current_counts - last_counts
-
-                current_position[0] += (counts_increment / CPR) * WHEEL_CIRCUMFERENCE * math.sin(math.radians(real_angle))
-                current_position[1] += (counts_increment / CPR) * WHEEL_CIRCUMFERENCE * math.cos(math.radians(real_angle))
-
-                # reach the wapoint and proceed the next waypoint
-                if current_counts >= target_counts:
-                    break
-                last_counts = current_counts
+                            # PD control calculation
+                            error = aim_angle - current_angle
+                            derivative = (current_angle - last_angle) / time_elapsed
 
 
+                            # Check if the target angle is reached within the tolerance
+                            if abs(error) < ANGLE_TOLERANCE:
 
-                # Feedback control of the Zumo when it moves straight
-                if imu.gyro.data_ready():
-                    now = time.ticks_us()
-                    imu.gyro.read()
-                    turn_rate = imu.gyro.last_reading_dps[2]-stationary_gz  # Z-axis
-                    time_elapsed = time.ticks_diff(now, last_time) / 1000000  # Convert microseconds to seconds
-                    current_angle += turn_rate * time_elapsed
+                                motors.set_speeds(MAX_SPEED, MAX_SPEED)
 
 
-                    # PD control calculation
-                    error = aim_angle - current_angle
-                    derivative = (current_angle - last_angle) / time_elapsed
+                            else:
+                            # Calculate control output
+                                turn_speed = Kp * error- Kd * turn_rate
+                                # Clamp the turn speed to be within the max speed range
+                                turn_speed = max(-robot.Motors.MAX_SPEED, min(turn_speed, robot.Motors.MAX_SPEED))
+                                motors.set_speeds(-turn_speed, turn_speed)
 
 
-                    # Check if the target angle is reached within the tolerance
-                    if abs(error) < ANGLE_TOLERANCE:
-
-                        motors.set_speeds(MAX_SPEED, MAX_SPEED)
-
-
-                    else:
-                    # Calculate control output
-                        turn_speed = Kp * error- Kd * turn_rate
-                        # Clamp the turn speed to be within the max speed range
-                        turn_speed = max(-robot.Motors.MAX_SPEED, min(turn_speed, robot.Motors.MAX_SPEED))
-                        motors.set_speeds(-turn_speed, turn_speed)
+                            # Update variables for the next iteration
+                            last_time = now
+                            last_angle = current_angle
 
 
-                    # Update variables for the next iteration
-                    last_time = now
-                    last_angle = current_angle
+                motors.off()
+                time.sleep(0.1)
+                #print('next')
+
+                i += 1
+                #print('real'+str(real_angle))
 
 
-            motors.off()
-            time.sleep(0.1)
-            #print('next')
 
-            i += 1
+        ####################################################################################################
+        ########testing unload##############################################################################
+        #main control loop to proceed each waypoint
+        #motors.set_speeds(robot.Motors.MAX_SPEED/3, robot.Motors.MAX_SPEED/3)
+        #time.sleep(3)
+        motors.off()
+        time.sleep(1)
 
-            wifi.send_udp_data("{},{},{},0".format(robot_id, current_position[0], current_position[1]), uart1)
+
+
+
+            #wifi.send_udp_data("{},{},{},0".format(robot_id, current_position[0], current_position[1]), uart1)
 
             #data = "" + str(distance) + "," + str(theta)
             #send_udp_data(data, remote_ip, remote_port)

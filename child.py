@@ -37,7 +37,7 @@ pin = Pin(28, Pin.IN)
 
 def callback(pin):
     if isConnected:
-        wifi.send_udp_data("Mine identified", uart1)
+        wifi.send_udp_data("{},{},{},1".format(robot_id,current_position[0],current_position[1]), uart1)
 
 pin.irq(trigger=Pin.IRQ_RISING, handler=callback)
 

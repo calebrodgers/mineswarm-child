@@ -41,10 +41,6 @@ def callback(pin):
 
 pin.irq(trigger=Pin.IRQ_RISING, handler=callback)
 
-# Waypoints list: Each element is [distance (in meters), theta (in degrees)]
-# The robot always keeps its heading angle at zero.
-waypoints = [[0.2, 0], [0.2, 180]]
-
 current_angle = 0  # Accumulated angle
 aim_angle = 0  # Target angle
 
@@ -59,6 +55,8 @@ def generate_path(width, length):
     """Generate a path based on the given length and width."""
     path = []
     path.append([0, 0])  # Starting point
+    
+    path.append([0.2, 0])  # Drive out of bay
 
     direction = 90 if width > 0 else -90  # Determine turning direction
 
@@ -68,7 +66,7 @@ def generate_path(width, length):
     for _ in range(num_segments):
         path.append([length, 0])  # Move forward by 'length'
         path.append([0, direction])  # Turn by 90 degrees
-        path.append([0.1, 0])  # Move forward by 0.1 meters
+        path.append([0.1, 0])  # Move forward by 0.1
         path.append([0, direction])  # Turn by 90 degrees
         direction *= -1  # Change direction
 
@@ -79,9 +77,9 @@ def generate_path(width, length):
         path.append([0, direction])  # Turn by 90 degrees
 
     path.append([0, -direction])  # Correct direction to face the starting point
-    path.append([abs(width), 0])  # Move forward by the width of the path
-    path.append([0, -direction])  # Turn 90 degrees to face the opposite direction
-    path.append([length / 2, 0])  # Move half the length to the starting position
+    path.append([abs(width)+0.05, 0])  # Move forward by the width of the path
+    path.append([0, direction])  # Turn 90 degrees to face the opposite direction
+    path.append([0.01, 0]) # Move forward by 0.1
 
     return path
 
@@ -89,49 +87,10 @@ def calculate_counts(distance):
     """Convert distance to encoder counts."""
     return int((distance / WHEEL_CIRCUMFERENCE) * CPR)
 
-def turn_angle(target_angle):
-    """Turn the robot to a specific angle using the gyro with PD control."""
-    global current_angle
-    last_time1 = time.ticks_us()
-
-    # PD Controller coefficients
-    Kp = 350  # Proportional gain
-    Kd = 7  # Derivative gain
-    last_angle1 = current_angle  # Store last angle for derivative calculation
-
-    while True:
-        if imu.gyro.data_ready():
-            now1 = time.ticks_us()
-            imu.gyro.read()
-            turn_rate = imu.gyro.last_reading_dps[2] - stationary_gz  # Z-axis
-            time_elapsed = time.ticks_diff(now1, last_time1) / 1000000  # Convert to seconds
-            current_angle += turn_rate * time_elapsed
-
-            # PD control calculation
-            error = target_angle - current_angle
-            derivative = (current_angle - last_angle1) / time_elapsed
-
-            # Check if the target angle is within tolerance
-            if abs(error) < ANGLE_TOLERANCE:
-                motors.off()
-                print(f"Final angle after turn: {current_angle}")
-                return
-
-            # Calculate control output
-            turn_speed = Kp * error - Kd * turn_rate
-            turn_speed = max(-robot.Motors.MAX_SPEED, min(turn_speed, robot.Motors.MAX_SPEED))
-            motors.set_speeds(-turn_speed, turn_speed)
-
-            # Update variables for the next iteration
-            last_time1 = now1
-            last_angle1 = current_angle
-        else:
-            time.sleep(0.01)  # Small delay to prevent excessive loop speed
-
 # Wi-Fi configuration
 ssid = 'TP-Link_EBC6'
 password = '58221471'
-local_ip = "192.168.0.15"
+local_ip = "192.168.0.{}5".format(robot_id)
 local_port = 1112
 remote_ip = "192.168.0.107"
 remote_port = 50000
@@ -166,7 +125,6 @@ if wifi.setup_udp_server(local_ip, local_port, uart1):
         area_height = float(dimensions[1])
 
         display.fill(0)
-        display.text(str(len(waypoints)), 0, 0)
         display.text(str(area_width), 0, 15)
         display.text(str(area_height), 0, 30)
         display.show()
@@ -180,10 +138,10 @@ if wifi.setup_udp_server(local_ip, local_port, uart1):
         i = 0
 
         # Initial setup and calibration
-        time.sleep(2)
-        motors.set_speeds(MAX_SPEED / 2, MAX_SPEED / 2)
-        time.sleep(1.5)
-        motors.off()
+        #time.sleep(2)
+        #motors.set_speeds(MAX_SPEED / 2, MAX_SPEED / 2)
+        #time.sleep(2)
+        #motors.off()
 
         imu.reset()
         imu.enable_default()
@@ -210,8 +168,8 @@ if wifi.setup_udp_server(local_ip, local_port, uart1):
                 print('Calibration complete')
 
             # PD Controller coefficients
-            Kp = 350  # Proportional gain
-            Kd = 7  # Derivative gain
+            Kp = 400  # Proportional gain
+            Kd = 8  # Derivative gain
 
             while True:
                 current_counts = sum(encoders.get_counts()) / 2
@@ -238,7 +196,7 @@ if wifi.setup_udp_server(local_ip, local_port, uart1):
                         motors.set_speeds(MAX_SPEED, MAX_SPEED)
                     else:
                         turn_speed = Kp * error - Kd * turn_rate
-                        turn_speed = max(-robot.Motors.MAX_SPEED, min(turn_speed, robot.Motors.MAX_SPEED))
+                        turn_speed = max(-MAX_SPEED, min(turn_speed, MAX_SPEED))
                         motors.set_speeds(-turn_speed, turn_speed)
 
                     last_time = now
@@ -251,6 +209,8 @@ if wifi.setup_udp_server(local_ip, local_port, uart1):
             
             wifi.send_udp_data("{},{},{},0".format(robot_id,current_position[0],current_position[1]), uart1)
 
+        motors.set_speeds(-MAX_SPEED/2, -MAX_SPEED/2)
+        time.sleep(3)
         motors.off()
         wifi.send_udp_data(f"Child {robot_id} completed", uart1)
         current_position = [0, 0]

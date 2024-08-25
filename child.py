@@ -55,7 +55,7 @@ last_angle = 0
 # Wi-Fi setup
 uart1 = UART(1, baudrate=115200, tx=Pin(20), rx=Pin(21))
 
-def generate_path(length, width):
+def generate_path(width, length):
     """Generate a path based on the given length and width."""
     path = []
     path.append([0, 0])  # Starting point
@@ -217,8 +217,8 @@ if wifi.setup_udp_server(local_ip, local_port, uart1):
                 current_counts = sum(encoders.get_counts()) / 2
                 counts_increment = current_counts - last_counts
 
-                current_position[0] += (counts_increment / CPR) * WHEEL_CIRCUMFERENCE * math.sin(math.radians(real_angle))
-                current_position[1] += (counts_increment / CPR) * WHEEL_CIRCUMFERENCE * math.cos(math.radians(real_angle))
+                current_position[0] += (counts_increment / CPR) * WHEEL_CIRCUMFERENCE * math.sin(math.radians(current_angle))
+                current_position[1] += (counts_increment / CPR) * WHEEL_CIRCUMFERENCE * math.cos(math.radians(current_angle))
 
                 if current_counts >= target_counts:
                     break
@@ -248,9 +248,12 @@ if wifi.setup_udp_server(local_ip, local_port, uart1):
             time.sleep(0.1)
 
             i += 1
+            
+            wifi.send_udp_data("{},{},{},0".format(robot_id,current_position[0],current_position[1]), uart1)
 
         motors.off()
         wifi.send_udp_data(f"Child {robot_id} completed", uart1)
+        current_position = [0, 0]
 else:
     display.fill(0)
     display.text("Wi-Fi Connection Failed", 0, 0)

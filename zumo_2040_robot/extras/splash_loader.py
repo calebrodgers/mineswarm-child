@@ -203,7 +203,7 @@ def splash_loader(*, default_program, splash_delay_s, run_file_delay_ms):
     button = read_button()
 
     if button == None and splash_delay_s != 0:
-        buzzer.play_in_background(welcome_song)
+        # buzzer.play_in_background(welcome_song)
         button = initial_screen()
 
     if button == None:
